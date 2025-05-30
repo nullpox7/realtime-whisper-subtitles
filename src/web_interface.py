@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Web Interface for Real-time Whisper Subtitles
-?????????????????Web????????
+Web interface for real-time speech recognition subtitle system
 """
 
 import asyncio
@@ -33,4 +33,313 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class WebSocketManager:
-    \"\"\"WebSocket???????\"\"\"\n    \n    def __init__(self):\n        self.active_connections: List[WebSocket] = []\n    \n    async def connect(self, websocket: WebSocket):\n        \"\"\"WebSocket?????\"\"\"\n        await websocket.accept()\n        self.active_connections.append(websocket)\n        logger.info(f\"WebSocket connected. Total connections: {len(self.active_connections)}\")\n    \n    def disconnect(self, websocket: WebSocket):\n        \"\"\"WebSocket?????\"\"\"\n        if websocket in self.active_connections:\n            self.active_connections.remove(websocket)\n        logger.info(f\"WebSocket disconnected. Total connections: {len(self.active_connections)}\")\n    \n    async def send_personal_message(self, message: str, websocket: WebSocket):\n        \"\"\"?????????\"\"\"\n        try:\n            await websocket.send_text(message)\n        except Exception as e:\n            logger.error(f\"Failed to send personal message: {e}\")\n    \n    async def broadcast(self, message: str):\n        \"\"\"????????????\"\"\"\n        if not self.active_connections:\n            return\n        \n        disconnected = []\n        for connection in self.active_connections:\n            try:\n                await connection.send_text(message)\n            except Exception as e:\n                logger.error(f\"Failed to broadcast message: {e}\")\n                disconnected.append(connection)\n        \n        # ??????????\n        for conn in disconnected:\n            self.disconnect(conn)\n\nclass RealtimeSubtitleApp:\n    \"\"\"????????Web????????\"\"\"\n    \n    def __init__(self):\n        # FastAPI setup\n        self.app = FastAPI(\n            title=\"Real-time Whisper Subtitles\",\n            description=\"Real-time speech recognition with faster-whisper for subtitle generation\",\n            version=\"1.0.0\"\n        )\n        \n        # Setup paths\n        self.base_dir = Path(__file__).parent.parent\n        self.static_dir = self.base_dir / \"static\"\n        self.templates_dir = self.base_dir / \"templates\"\n        self.outputs_dir = self.base_dir / \"outputs\"\n        \n        # Create directories\n        self.static_dir.mkdir(exist_ok=True)\n        self.templates_dir.mkdir(exist_ok=True)\n        self.outputs_dir.mkdir(exist_ok=True)\n        \n        # Components\n        self.transcriber: Optional[RealtimeTranscriber] = None\n        self.subtitle_manager: Optional[SubtitleManager] = None\n        self.websocket_manager = WebSocketManager()\n        \n        # State\n        self.is_recording = False\n        self.current_device_index: Optional[int] = None\n        \n        # Setup routes and static files\n        self._setup_routes()\n        self._setup_static_files()\n        \n        logger.info(\"RealtimeSubtitleApp initialized\")\n    \n    def _setup_static_files(self):\n        \"\"\"????????????????\"\"\"\n        # Static files\n        self.app.mount(\"/static\", StaticFiles(directory=str(self.static_dir)), name=\"static\")\n        \n        # Templates\n        self.templates = Jinja2Templates(directory=str(self.templates_dir))\n    \n    def _setup_routes(self):\n        \"\"\"API??????\"\"\"\n        \n        @self.app.get(\"/\", response_class=HTMLResponse)\n        async def read_root(request: Request):\n            \"\"\"??????\"\"\"\n            return self.templates.TemplateResponse(\"index.html\", {\"request\": request})\n        \n        @self.app.websocket(\"/ws\")\n        async def websocket_endpoint(websocket: WebSocket):\n            \"\"\"WebSocket ???????\"\"\"\n            await self.websocket_manager.connect(websocket)\n            try:\n                while True:\n                    data = await websocket.receive_text()\n                    message = json.loads(data)\n                    await self._handle_websocket_message(message, websocket)\n            except WebSocketDisconnect:\n                self.websocket_manager.disconnect(websocket)\n            except Exception as e:\n                logger.error(f\"WebSocket error: {e}\")\n                self.websocket_manager.disconnect(websocket)\n        \n        @self.app.get(\"/api/devices\")\n        async def get_audio_devices():\n            \"\"\"????????????????\"\"\"\n            try:\n                if not self.transcriber:\n                    self.transcriber = RealtimeTranscriber()\n                \n                devices = self.transcriber.get_available_devices()\n                return {\"devices\": devices}\n            except Exception as e:\n                logger.error(f\"Failed to get audio devices: {e}\")\n                raise HTTPException(status_code=500, detail=str(e))\n        \n        @self.app.post(\"/api/start\")\n        async def start_transcription(request: Request):\n            \"\"\"??????\"\"\"\n            try:\n                data = await request.json()\n                model_size = data.get(\"model_size\", \"base\")\n                language = data.get(\"language\")\n                device_index = data.get(\"device_index\")\n                \n                if self.is_recording:\n                    return {\"error\": \"Already recording\"}\n                \n                # Initialize components\n                self.transcriber = RealtimeTranscriber(\n                    model_size=model_size,\n                    language=language\n                )\n                self.subtitle_manager = SubtitleManager(output_dir=str(self.outputs_dir))\n                \n                # Set callback\n                self.transcriber.set_transcription_callback(self._on_transcription)\n                \n                # Start transcription\n                self.transcriber.start(device_index=device_index)\n                self.is_recording = True\n                self.current_device_index = device_index\n                \n                # Broadcast status\n                await self.websocket_manager.broadcast(json.dumps({\n                    \"type\": \"status\",\n                    \"status\": \"recording\",\n                    \"message\": \"Recording started\"\n                }))\n                \n                return {\"status\": \"started\"}\n                \n            except Exception as e:\n                logger.error(f\"Failed to start transcription: {e}\")\n                raise HTTPException(status_code=500, detail=str(e))\n        \n        @self.app.post(\"/api/stop\")\n        async def stop_transcription():\n            \"\"\"??????\"\"\"\n            try:\n                if not self.is_recording:\n                    return {\"error\": \"Not recording\"}\n                \n                # Stop transcription\n                if self.transcriber:\n                    self.transcriber.stop()\n                \n                self.is_recording = False\n                \n                # Broadcast status\n                await self.websocket_manager.broadcast(json.dumps({\n                    \"type\": \"status\",\n                    \"status\": \"stopped\",\n                    \"message\": \"Recording stopped\"\n                }))\n                \n                return {\"status\": \"stopped\"}\n                \n            except Exception as e:\n                logger.error(f\"Failed to stop transcription: {e}\")\n                raise HTTPException(status_code=500, detail=str(e))\n        \n        @self.app.get(\"/api/status\")\n        async def get_status():\n            \"\"\"???????????\"\"\"\n            return {\n                \"is_recording\": self.is_recording,\n                \"device_index\": self.current_device_index,\n                \"statistics\": self.subtitle_manager.get_statistics() if self.subtitle_manager else None\n            }\n        \n        @self.app.get(\"/api/subtitles\")\n        async def get_subtitles(count: int = 50):\n            \"\"\"?????????????\"\"\"\n            if not self.subtitle_manager:\n                return {\"segments\": []}\n            \n            segments = self.subtitle_manager.get_recent_segments(count)\n            return {\n                \"segments\": [segment.to_dict() for segment in segments]\n            }\n        \n        @self.app.post(\"/api/export/{format}\")\n        async def export_subtitles(format: str):\n            \"\"\"?????????\"\"\"\n            if not self.subtitle_manager:\n                raise HTTPException(status_code=400, detail=\"No subtitle data available\")\n            \n            try:\n                if format == \"srt\":\n                    filepath = self.subtitle_manager.export_srt()\n                elif format == \"vtt\":\n                    filepath = self.subtitle_manager.export_webvtt()\n                elif format == \"json\":\n                    filepath = self.subtitle_manager.export_json()\n                elif format == \"txt\":\n                    filepath = self.subtitle_manager.export_txt()\n                else:\n                    raise HTTPException(status_code=400, detail=\"Unsupported format\")\n                \n                return FileResponse(\n                    path=filepath,\n                    filename=Path(filepath).name,\n                    media_type='application/octet-stream'\n                )\n                \n            except Exception as e:\n                logger.error(f\"Export failed: {e}\")\n                raise HTTPException(status_code=500, detail=str(e))\n        \n        @self.app.delete(\"/api/clear\")\n        async def clear_subtitles():\n            \"\"\"?????????\"\"\"\n            if self.subtitle_manager:\n                self.subtitle_manager.clear_segments()\n                \n                # Broadcast clear event\n                await self.websocket_manager.broadcast(json.dumps({\n                    \"type\": \"clear\",\n                    \"message\": \"Subtitles cleared\"\n                }))\n            \n            return {\"status\": \"cleared\"}\n    \n    async def _handle_websocket_message(self, message: Dict[str, Any], websocket: WebSocket):\n        \"\"\"WebSocket??????????\"\"\"\n        message_type = message.get(\"type\")\n        \n        if message_type == \"ping\":\n            await self.websocket_manager.send_personal_message(\n                json.dumps({\"type\": \"pong\"}), \n                websocket\n            )\n        elif message_type == \"get_status\":\n            status = {\n                \"type\": \"status\",\n                \"is_recording\": self.is_recording,\n                \"device_index\": self.current_device_index\n            }\n            await self.websocket_manager.send_personal_message(\n                json.dumps(status), \n                websocket\n            )\n    \n    def _on_transcription(self, result: TranscriptionResult):\n        \"\"\"?????????????\"\"\"\n        try:\n            # Add to subtitle manager\n            if self.subtitle_manager:\n                segment = self.subtitle_manager.add_transcription(result)\n                \n                # Broadcast to all connected clients\n                message = {\n                    \"type\": \"transcription\",\n                    \"segment\": segment.to_dict()\n                }\n                \n                # Use asyncio to run the coroutine\n                asyncio.create_task(self.websocket_manager.broadcast(json.dumps(message)))\n                \n        except Exception as e:\n            logger.error(f\"Error handling transcription result: {e}\")\n    \n    def run(self, host: str = \"0.0.0.0\", port: int = 8000, debug: bool = False):\n        \"\"\"Web???????????\"\"\"\n        logger.info(f\"Starting Real-time Whisper Subtitles Web Interface on {host}:{port}\")\n        \n        uvicorn.run(\n            self.app,\n            host=host,\n            port=port,\n            log_level=\"debug\" if debug else \"info\",\n            reload=debug\n        )\n\ndef create_app() -> FastAPI:\n    \"\"\"FastAPI??????????????\"\"\"\n    app_instance = RealtimeSubtitleApp()\n    return app_instance.app\n\nif __name__ == \"__main__\":\n    # Development server\n    app_instance = RealtimeSubtitleApp()\n    app_instance.run(debug=True)
+    """WebSocket connection manager class"""
+    
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+    
+    async def connect(self, websocket: WebSocket):
+        """Add WebSocket connection"""
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
+    
+    def disconnect(self, websocket: WebSocket):
+        """Remove WebSocket connection"""
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+        logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
+    
+    async def send_personal_message(self, message: str, websocket: WebSocket):
+        """Send personal message"""
+        try:
+            await websocket.send_text(message)
+        except Exception as e:
+            logger.error(f"Failed to send personal message: {e}")
+    
+    async def broadcast(self, message: str):
+        """Broadcast to all connections"""
+        if not self.active_connections:
+            return
+        
+        disconnected = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception as e:
+                logger.error(f"Failed to broadcast message: {e}")
+                disconnected.append(connection)
+        
+        # Remove disconnected connections
+        for conn in disconnected:
+            self.disconnect(conn)
+
+class RealtimeSubtitleApp:
+    """Real-time subtitle web application"""
+    
+    def __init__(self):
+        # FastAPI setup
+        self.app = FastAPI(
+            title="Real-time Whisper Subtitles",
+            description="Real-time speech recognition with faster-whisper for subtitle generation",
+            version="1.0.0"
+        )
+        
+        # Setup paths
+        self.base_dir = Path(__file__).parent.parent
+        self.static_dir = self.base_dir / "static"
+        self.templates_dir = self.base_dir / "templates"
+        self.outputs_dir = self.base_dir / "outputs"
+        
+        # Create directories
+        self.static_dir.mkdir(exist_ok=True)
+        self.templates_dir.mkdir(exist_ok=True)
+        self.outputs_dir.mkdir(exist_ok=True)
+        
+        # Components
+        self.transcriber: Optional[RealtimeTranscriber] = None
+        self.subtitle_manager: Optional[SubtitleManager] = None
+        self.websocket_manager = WebSocketManager()
+        
+        # State
+        self.is_recording = False
+        self.current_device_index: Optional[int] = None
+        
+        # Setup routes and static files
+        self._setup_routes()
+        self._setup_static_files()
+        
+        logger.info("RealtimeSubtitleApp initialized")
+    
+    def _setup_static_files(self):
+        """Setup static files and templates"""
+        # Static files
+        self.app.mount("/static", StaticFiles(directory=str(self.static_dir)), name="static")
+        
+        # Templates
+        self.templates = Jinja2Templates(directory=str(self.templates_dir))
+    
+    def _setup_routes(self):
+        """Setup API routes"""
+        
+        @self.app.get("/", response_class=HTMLResponse)
+        async def read_root(request: Request):
+            """Main page"""
+            return self.templates.TemplateResponse("index.html", {"request": request})
+        
+        @self.app.websocket("/ws")
+        async def websocket_endpoint(websocket: WebSocket):
+            """WebSocket endpoint"""
+            await self.websocket_manager.connect(websocket)
+            try:
+                while True:
+                    data = await websocket.receive_text()
+                    message = json.loads(data)
+                    await self._handle_websocket_message(message, websocket)
+            except WebSocketDisconnect:
+                self.websocket_manager.disconnect(websocket)
+            except Exception as e:
+                logger.error(f"WebSocket error: {e}")
+                self.websocket_manager.disconnect(websocket)
+        
+        @self.app.get("/api/devices")
+        async def get_audio_devices():
+            """Get available audio devices list"""
+            try:
+                if not self.transcriber:
+                    self.transcriber = RealtimeTranscriber()
+                
+                devices = self.transcriber.get_available_devices()
+                return {"devices": devices}
+            except Exception as e:
+                logger.error(f"Failed to get audio devices: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/api/start")
+        async def start_transcription(request: Request):
+            """Start speech recognition"""
+            try:
+                data = await request.json()
+                model_size = data.get("model_size", "base")
+                language = data.get("language")
+                device_index = data.get("device_index")
+                
+                if self.is_recording:
+                    return {"error": "Already recording"}
+                
+                # Initialize components
+                self.transcriber = RealtimeTranscriber(
+                    model_size=model_size,
+                    language=language
+                )
+                self.subtitle_manager = SubtitleManager(output_dir=str(self.outputs_dir))
+                
+                # Set callback
+                self.transcriber.set_transcription_callback(self._on_transcription)
+                
+                # Start transcription
+                self.transcriber.start(device_index=device_index)
+                self.is_recording = True
+                self.current_device_index = device_index
+                
+                # Broadcast status
+                await self.websocket_manager.broadcast(json.dumps({
+                    "type": "status",
+                    "status": "recording",
+                    "message": "Recording started"
+                }))
+                
+                return {"status": "started"}
+                
+            except Exception as e:
+                logger.error(f"Failed to start transcription: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/api/stop")
+        async def stop_transcription():
+            """Stop speech recognition"""
+            try:
+                if not self.is_recording:
+                    return {"error": "Not recording"}
+                
+                # Stop transcription
+                if self.transcriber:
+                    self.transcriber.stop()
+                
+                self.is_recording = False
+                
+                # Broadcast status
+                await self.websocket_manager.broadcast(json.dumps({
+                    "type": "status",
+                    "status": "stopped",
+                    "message": "Recording stopped"
+                }))
+                
+                return {"status": "stopped"}
+                
+            except Exception as e:
+                logger.error(f"Failed to stop transcription: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/api/status")
+        async def get_status():
+            """Get current status"""
+            return {
+                "is_recording": self.is_recording,
+                "device_index": self.current_device_index,
+                "statistics": self.subtitle_manager.get_statistics() if self.subtitle_manager else None
+            }
+        
+        @self.app.get("/api/subtitles")
+        async def get_subtitles(count: int = 50):
+            """Get latest subtitle segments"""
+            if not self.subtitle_manager:
+                return {"segments": []}
+            
+            segments = self.subtitle_manager.get_recent_segments(count)
+            return {
+                "segments": [segment.to_dict() for segment in segments]
+            }
+        
+        @self.app.post("/api/export/{format}")
+        async def export_subtitles(format: str):
+            """Export subtitles"""
+            if not self.subtitle_manager:
+                raise HTTPException(status_code=400, detail="No subtitle data available")
+            
+            try:
+                if format == "srt":
+                    filepath = self.subtitle_manager.export_srt()
+                elif format == "vtt":
+                    filepath = self.subtitle_manager.export_webvtt()
+                elif format == "json":
+                    filepath = self.subtitle_manager.export_json()
+                elif format == "txt":
+                    filepath = self.subtitle_manager.export_txt()
+                else:
+                    raise HTTPException(status_code=400, detail="Unsupported format")
+                
+                return FileResponse(
+                    path=filepath,
+                    filename=Path(filepath).name,
+                    media_type='application/octet-stream'
+                )
+                
+            except Exception as e:
+                logger.error(f"Export failed: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.delete("/api/clear")
+        async def clear_subtitles():
+            """Clear subtitle data"""
+            if self.subtitle_manager:
+                self.subtitle_manager.clear_segments()
+                
+                # Broadcast clear event
+                await self.websocket_manager.broadcast(json.dumps({
+                    "type": "clear",
+                    "message": "Subtitles cleared"
+                }))
+            
+            return {"status": "cleared"}
+    
+    async def _handle_websocket_message(self, message: Dict[str, Any], websocket: WebSocket):
+        """WebSocket message handler"""
+        message_type = message.get("type")
+        
+        if message_type == "ping":
+            await self.websocket_manager.send_personal_message(
+                json.dumps({"type": "pong"}), 
+                websocket
+            )
+        elif message_type == "get_status":
+            status = {
+                "type": "status",
+                "is_recording": self.is_recording,
+                "device_index": self.current_device_index
+            }
+            await self.websocket_manager.send_personal_message(
+                json.dumps(status), 
+                websocket
+            )
+    
+    def _on_transcription(self, result: TranscriptionResult):
+        """Transcription result callback"""
+        try:
+            # Add to subtitle manager
+            if self.subtitle_manager:
+                segment = self.subtitle_manager.add_transcription(result)
+                
+                # Broadcast to all connected clients
+                message = {
+                    "type": "transcription",
+                    "segment": segment.to_dict()
+                }
+                
+                # Use asyncio to run the coroutine
+                asyncio.create_task(self.websocket_manager.broadcast(json.dumps(message)))
+                
+        except Exception as e:
+            logger.error(f"Error handling transcription result: {e}")
+    
+    def run(self, host: str = "0.0.0.0", port: int = 8000, debug: bool = False):
+        """Run web application"""
+        logger.info(f"Starting Real-time Whisper Subtitles Web Interface on {host}:{port}")
+        
+        uvicorn.run(
+            self.app,
+            host=host,
+            port=port,
+            log_level="debug" if debug else "info",
+            reload=debug
+        )
+
+def create_app() -> FastAPI:
+    """FastAPI application factory"""
+    app_instance = RealtimeSubtitleApp()
+    return app_instance.app
+
+if __name__ == "__main__":
+    # Development server
+    app_instance = RealtimeSubtitleApp()
+    app_instance.run(debug=True)
