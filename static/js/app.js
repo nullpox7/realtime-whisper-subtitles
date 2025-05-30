@@ -166,7 +166,7 @@ class RealtimeSubtitlesApp {
     }
     
     populateDeviceSelect(devices) {
-        this.deviceSelect.innerHTML = '<option value=\"\">Select audio device...</option>';
+        this.deviceSelect.innerHTML = '<option value="">Select audio device...</option>';
         
         devices.forEach(device => {
             const option = document.createElement('option');
@@ -335,7 +335,7 @@ class RealtimeSubtitlesApp {
     
     changeFontSize() {
         const size = this.fontSizeSelect.value;
-        this.subtitlesDisplay.className = this.subtitlesDisplay.className.replace(/font-\\w+/g, '');
+        this.subtitlesDisplay.className = this.subtitlesDisplay.className.replace(/font-\w+/g, '');
         this.subtitlesDisplay.classList.add(`font-${size}`);
     }
     
