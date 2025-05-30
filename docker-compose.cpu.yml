@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  whisper-subtitles-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    container_name: realtime-whisper-subtitles-cpu
+    
+    # Environment variables
+    environment:
+      - PYTHONPATH=/app
+      - PULSE_RUNTIME_PATH=/run/user/1000/pulse
+      - PULSE_COOKIE_DATA=/tmp/pulse-cookie
+    
+    # Audio device access
+    devices:
+      - /dev/snd:/dev/snd
+    
+    # Volume mounts
+    volumes:
+      - ./src:/app/src
+      - ./static:/app/static
+      - ./outputs:/app/outputs
+      - ./models:/app/models
+      - ~/.cache/pip:/root/.cache/pip
+      - /run/user/1000/pulse:/run/user/1000/pulse:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    
+    # Port mappings
+    ports:
+      - "8000:8000"  # Web Interface
+      - "8888:8888"  # Debug/Development
+    
+    # Working directory
+    working_dir: /app
+    
+    # Startup command
+    command: >
+      sh -c "
+        echo 'Starting Real-time Whisper Subtitles System (CPU Only)...' &&
+        python -c 'import torch; print(f\"CUDA available: {torch.cuda.is_available()}\"); print(f\"Device: CPU\")' &&
+        python src/web_interface.py
+      "
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Network
+    networks:
+      - whisper-network
+    
+    # Privileges for audio access
+    privileged: true
+
+# Network configuration
+networks:
+  whisper-network:
+    driver: bridge
