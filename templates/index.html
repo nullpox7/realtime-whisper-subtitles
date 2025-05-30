@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Whisper Subtitles</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1><i class="fas fa-microphone"></i> Real-time Whisper Subtitles</h1>
+            <div class="status-indicator" id="statusIndicator">
+                <span class="status-text" id="statusText">Ready</span>
+                <div class="status-dot" id="statusDot"></div>
+            </div>
+        </header>
+
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <div class="control-group">
+                <label for="deviceSelect">Audio Device:</label>
+                <select id="deviceSelect" class="form-control">
+                    <option value="">Select audio device...</option>
+                </select>
+                <button id="refreshDevices" class="btn btn-secondary">
+                    <i class="fas fa-refresh"></i>
+                </button>
+            </div>
+
+            <div class="control-group">
+                <label for="modelSelect">Model Size:</label>
+                <select id="modelSelect" class="form-control">
+                    <option value="tiny">Tiny (39MB) - Fastest</option>
+                    <option value="base" selected>Base (74MB) - Balanced</option>
+                    <option value="small">Small (244MB) - Better</option>
+                    <option value="medium">Medium (769MB) - High Quality</option>
+                    <option value="large">Large (1550MB) - Best Quality</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label for="languageSelect">Language:</label>
+                <select id="languageSelect" class="form-control">
+                    <option value="">Auto Detect</option>
+                    <option value="ja">Japanese</option>
+                    <option value="en">English</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ko">Korean</option>
+                    <option value="es">Spanish</option>
+                    <option value="fr">French</option>
+                    <option value="de">German</option>
+                    <option value="it">Italian</option>
+                    <option value="pt">Portuguese</option>
+                    <option value="ru">Russian</option>
+                </select>
+            </div>
+
+            <div class="control-buttons">
+                <button id="startBtn" class="btn btn-primary">
+                    <i class="fas fa-play"></i> Start Recording
+                </button>
+                <button id="stopBtn" class="btn btn-danger" disabled>
+                    <i class="fas fa-stop"></i> Stop Recording
+                </button>
+                <button id="clearBtn" class="btn btn-warning">
+                    <i class="fas fa-trash"></i> Clear Subtitles
+                </button>
+            </div>
+        </div>
+
+        <!-- Live Subtitles Display -->
+        <div class="subtitles-container">
+            <div class="subtitles-header">
+                <h2><i class="fas fa-closed-captioning"></i> Live Subtitles</h2>
+                <div class="subtitle-controls">
+                    <button id="toggleScrollBtn" class="btn btn-secondary">
+                        <i class="fas fa-pause"></i> Pause Auto-scroll
+                    </button>
+                    <select id="fontSizeSelect" class="form-control">
+                        <option value="small">Small</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="large">Large</option>
+                        <option value="xlarge">Extra Large</option>
+                    </select>
+                </div>
+            </div>
+            <div class="subtitles-display" id="subtitlesDisplay">
+                <div class="no-subtitles">
+                    <i class="fas fa-microphone-slash"></i>
+                    <p>Start recording to see subtitles here...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Panel -->
+        <div class="export-panel">
+            <h3><i class="fas fa-download"></i> Export Subtitles</h3>
+            <div class="export-buttons">
+                <button class="btn btn-export" onclick="exportSubtitles('srt')">
+                    <i class="fas fa-file-text"></i> SRT
+                </button>
+                <button class="btn btn-export" onclick="exportSubtitles('vtt')">
+                    <i class="fas fa-file-video"></i> WebVTT
+                </button>
+                <button class="btn btn-export" onclick="exportSubtitles('json')">
+                    <i class="fas fa-file-code"></i> JSON
+                </button>
+                <button class="btn btn-export" onclick="exportSubtitles('txt')">
+                    <i class="fas fa-file-alt"></i> Text
+                </button>
+            </div>
+        </div>
+
+        <!-- Statistics Panel -->
+        <div class="stats-panel">
+            <h3><i class="fas fa-chart-bar"></i> Statistics</h3>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-label">Total Segments:</span>
+                    <span class="stat-value" id="totalSegments">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Duration:</span>
+                    <span class="stat-value" id="totalDuration">0:00</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Average Confidence:</span>
+                    <span class="stat-value" id="avgConfidence">0%</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Session Duration:</span>
+                    <span class="stat-value" id="sessionDuration">0:00</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>
+                <i class="fas fa-robot"></i> Powered by 
+                <a href="https://github.com/SYSTRAN/faster-whisper" target="_blank">faster-whisper</a>
+                | 
+                <a href="https://github.com/nullpox7/realtime-whisper-subtitles" target="_blank">
+                    <i class="fab fa-github"></i> View on GitHub
+                </a>
+            </p>
+        </footer>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p id="loadingText">Loading...</p>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
