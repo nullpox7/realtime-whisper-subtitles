@@ -24,7 +24,7 @@ python-multipart>=0.0.6
 # Deep Learning and GPU
 torch>=2.5.0
 torchaudio>=2.5.0
-cuda-python>=12.6.0
+cuda-python>=12.2.0
 
 # Data Processing
 numpy>=1.26.0
