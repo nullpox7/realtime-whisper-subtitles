@@ -4,7 +4,7 @@ Real-time speech recognition subtitle generation system using faster-whisper
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-green.svg)
-![CUDA](https://img.shields.io/badge/CUDA-12.6-orange.svg)
+![CUDA](https://img.shields.io/badge/CUDA-12.2-orange.svg)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg)
 
 ## Overview
@@ -64,6 +64,45 @@ make up
 ### 4. Access Web Interface
 
 Open http://localhost:8000 in your browser
+
+## Troubleshooting Docker Issues
+
+### CUDA Version Issues
+
+If you encounter CUDA Docker image not found errors:
+
+```bash
+# Option 1: Use CUDA 11.8 (more widely available)
+# Edit Dockerfile, change first line to:
+# FROM nvidia/cuda:11.8-devel-ubuntu22.04
+
+# Option 2: Use CPU-only version
+# Edit Dockerfile, change first line to:
+# FROM ubuntu:22.04
+# And remove CUDA-specific environment variables
+```
+
+### Alternative Docker Images
+
+```dockerfile
+# For older GPUs or compatibility issues:
+FROM nvidia/cuda:11.8-devel-ubuntu22.04
+
+# For CPU-only systems:
+FROM ubuntu:22.04
+
+# For specific CUDA versions:
+FROM nvidia/cuda:12.1-devel-ubuntu22.04
+```
+
+### Docker Build Issues
+
+```bash
+# Clear Docker cache and rebuild
+docker system prune -f
+docker-compose build --no-cache
+docker-compose up
+```
 
 ## Usage
 
@@ -208,6 +247,9 @@ realtime-whisper-subtitles/
 ### Testing
 
 ```bash
+# Run system tests
+python test_system.py
+
 # Run unit tests
 pytest tests/
 
@@ -231,19 +273,24 @@ Plans to implement subtitle reading with AI voice:
 
 ### Common Issues
 
-1. **Audio device not recognized**
+1. **CUDA Docker image not found**
+   - Use alternative CUDA versions (11.8, 12.1)
+   - Or use CPU-only version for testing
+   - Check NVIDIA Container Toolkit installation
+
+2. **Audio device not recognized**
    - Check if audio device is mounted to Docker container
    - Verify `devices` configuration in `docker-compose.yml`
 
-2. **CUDA/GPU recognition error**
+3. **GPU recognition error**
    - Check NVIDIA Container Toolkit installation
    - Verify GPU recognition with `nvidia-smi`
 
-3. **Low speech recognition accuracy**
+4. **Low speech recognition accuracy**
    - Try larger models (small, medium, large)
    - Improve audio input quality (noise reduction, microphone positioning)
 
-4. **Memory shortage error**
+5. **Memory shortage error**
    - Use smaller models (tiny, base)
    - Adjust Docker Compose memory limits
 
@@ -255,6 +302,14 @@ docker-compose logs -f
 
 # Check specific service logs
 docker-compose logs whisper-subtitles
+```
+
+### Performance Tips
+
+```bash
+# For RTX 4080/5080: Use medium or large models
+# For RTX 3060/3070: Use base or small models  
+# For CPU only: Use tiny or base models
 ```
 
 ## License
