@@ -1,6 +1,6 @@
 # Real-time Whisper Subtitles Docker Environment
-# CUDA 12.2 + faster-whisper optimized
-FROM nvidia/cuda:12.2-devel-ubuntu22.04
+# CUDA 12.9.0 + cuDNN + faster-whisper optimized
+FROM nvidia/cuda:12.9.0-cudnn-devel-ubuntu22.04
 
 # Environment variables
 ENV DEBIAN_FRONTEND=noninteractive
