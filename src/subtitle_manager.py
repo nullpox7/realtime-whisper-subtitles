@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Subtitle Management and Export
-?????????????
+Subtitle management and file export functionality
 """
 
 import os
@@ -33,7 +33,7 @@ from .realtime_transcriber import TranscriptionResult
 
 @dataclass
 class SubtitleSegment:
-    """???????"""
+    """Subtitle segment data class"""
     index: int
     start_time: float
     end_time: float
@@ -43,23 +43,23 @@ class SubtitleSegment:
     created_at: datetime
     
     def duration(self) -> float:
-        """???????????"""
+        """Get segment duration in seconds"""
         return self.end_time - self.start_time
     
     def to_dict(self) -> Dict[str, Any]:
-        """???????"""
+        """Convert to dictionary format"""
         data = asdict(self)
         data['created_at'] = self.created_at.isoformat()
         return data
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'SubtitleSegment':
-        """??????"""
+        """Restore from dictionary"""
         data['created_at'] = datetime.fromisoformat(data['created_at'])
         return cls(**data)
 
 class SubtitleManager:
-    """???????"""
+    """Subtitle management class"""
     
     def __init__(self, 
                  output_dir: str = "outputs",
@@ -72,21 +72,21 @@ class SubtitleManager:
         self.auto_save_interval = auto_save_interval
         self.max_segments = max_segments
         
-        # ?????????
+        # Subtitle segment management
         self.segments: List[SubtitleSegment] = []
         self.segment_counter = 0
         
-        # ???????
+        # Session management
         self.session_start_time = datetime.now()
         self.session_id = self.session_start_time.strftime("%Y%m%d_%H%M%S")
         
-        # ????????
+        # Auto-save timer
         self.last_save_time = time.time()
         
         logging.info(f"SubtitleManager initialized: session_id={self.session_id}")
     
     def add_transcription(self, result: TranscriptionResult) -> SubtitleSegment:
-        """???????????????????"""
+        """Add transcription result as subtitle segment"""
         self.segment_counter += 1
         
         segment = SubtitleSegment(
@@ -101,11 +101,11 @@ class SubtitleManager:
         
         self.segments.append(segment)
         
-        # ??????????????????????
+        # Remove old segments if exceeding max
         if len(self.segments) > self.max_segments:
             self.segments = self.segments[-self.max_segments:]
         
-        # ????????
+        # Check for auto-save
         current_time = time.time()
         if current_time - self.last_save_time >= self.auto_save_interval:
             self.auto_save()
@@ -115,13 +115,13 @@ class SubtitleManager:
         return segment
     
     def get_recent_segments(self, count: int = 10) -> List[SubtitleSegment]:
-        """???????????"""
+        """Get recent segments"""
         return self.segments[-count:] if self.segments else []
     
     def get_segments_by_time_range(self, 
                                   start_time: float, 
                                   end_time: float) -> List[SubtitleSegment]:
-        """?????????????"""
+        """Get segments by time range"""
         return [
             segment for segment in self.segments
             if (segment.start_time >= start_time and segment.end_time <= end_time) or
@@ -130,7 +130,7 @@ class SubtitleManager:
         ]
     
     def search_segments(self, query: str) -> List[SubtitleSegment]:
-        """??????"""
+        """Search segments by text"""
         query_lower = query.lower()
         return [
             segment for segment in self.segments
@@ -138,7 +138,7 @@ class SubtitleManager:
         ]
     
     def export_srt(self, filename: Optional[str] = None) -> str:
-        """SRT?????????"""
+        """Export in SRT format"""
         if not HAS_SRT:
             raise ImportError("srt library is required for SRT export")
         
@@ -147,7 +147,7 @@ class SubtitleManager:
         
         filepath = self.output_dir / filename
         
-        # SRT?????
+        # Generate SRT subtitles
         srt_subtitles = []
         for segment in self.segments:
             subtitle = srt.Subtitle(
@@ -158,7 +158,7 @@ class SubtitleManager:
             )
             srt_subtitles.append(subtitle)
         
-        # ??????
+        # Write to file
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(srt.compose(srt_subtitles))
         
@@ -166,7 +166,7 @@ class SubtitleManager:
         return str(filepath)
     
     def export_webvtt(self, filename: Optional[str] = None) -> str:
-        """WebVTT?????????"""
+        """Export in WebVTT format"""
         if not HAS_WEBVTT:
             raise ImportError("webvtt library is required for WebVTT export")
         
@@ -175,7 +175,7 @@ class SubtitleManager:
         
         filepath = self.output_dir / filename
         
-        # WebVTT?????
+        # Generate WebVTT subtitles
         vtt = webvtt.WebVTT()
         
         for segment in self.segments:
@@ -189,20 +189,20 @@ class SubtitleManager:
             )
             vtt.captions.append(caption)
         
-        # ??????
+        # Write to file
         vtt.save(str(filepath))
         
         logging.info(f"WebVTT exported: {filepath}")
         return str(filepath)
     
     def export_json(self, filename: Optional[str] = None) -> str:
-        """JSON?????????????????"""
+        """Export in JSON format (with detailed info)"""
         if filename is None:
             filename = f"subtitles_{self.session_id}.json"
         
         filepath = self.output_dir / filename
         
-        # JSON ?????
+        # JSON data structure
         data = {
             'session_id': self.session_id,
             'session_start_time': self.session_start_time.isoformat(),
@@ -211,7 +211,7 @@ class SubtitleManager:
             'segments': [segment.to_dict() for segment in self.segments]
         }
         
-        # ??????
+        # Write to file
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
@@ -219,13 +219,13 @@ class SubtitleManager:
         return str(filepath)
     
     def export_txt(self, filename: Optional[str] = None) -> str:
-        """?????????????????"""
+        """Export in plain text format"""
         if filename is None:
             filename = f"subtitles_{self.session_id}.txt"
         
         filepath = self.output_dir / filename
         
-        # ??????
+        # Write text
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"# Subtitles Session: {self.session_id}\n")
             f.write(f"# Created: {self.session_start_time}\n\n")
@@ -239,11 +239,11 @@ class SubtitleManager:
         return str(filepath)
     
     def load_from_json(self, filepath: str) -> int:
-        """JSON????????????????"""
+        """Load subtitle data from JSON file"""
         with open(filepath, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        # ????????
+        # Restore segments
         loaded_segments = [
             SubtitleSegment.from_dict(segment_data)
             for segment_data in data['segments']
@@ -251,7 +251,7 @@ class SubtitleManager:
         
         self.segments.extend(loaded_segments)
         
-        # ????????
+        # Update counter
         if loaded_segments:
             max_index = max(segment.index for segment in loaded_segments)
             self.segment_counter = max(self.segment_counter, max_index)
@@ -260,7 +260,7 @@ class SubtitleManager:
         return len(loaded_segments)
     
     def auto_save(self):
-        """?????JSON???"""
+        """Auto-save (JSON format)"""
         try:
             auto_save_file = f"autosave_{self.session_id}.json"
             self.export_json(auto_save_file)
@@ -269,13 +269,13 @@ class SubtitleManager:
             logging.error(f"Auto-save failed: {e}")
     
     def clear_segments(self):
-        """?????????????"""
+        """Clear all segments"""
         self.segments.clear()
         self.segment_counter = 0
         logging.info("All segments cleared")
     
     def get_statistics(self) -> Dict[str, Any]:
-        """???????"""
+        """Get statistics information"""
         if not self.segments:
             return {
                 'total_segments': 0,
@@ -288,7 +288,7 @@ class SubtitleManager:
         total_duration = sum(segment.duration() for segment in self.segments)
         average_confidence = sum(segment.confidence for segment in self.segments) / len(self.segments)
         
-        # ?????
+        # Language statistics
         languages = {}
         for segment in self.segments:
             lang = segment.language
@@ -297,7 +297,7 @@ class SubtitleManager:
             languages[lang]['count'] += 1
             languages[lang]['duration'] += segment.duration()
         
-        # ?????????
+        # Session duration
         session_duration = (datetime.now() - self.session_start_time).total_seconds()
         
         return {
@@ -311,39 +311,39 @@ class SubtitleManager:
         }
     
     def _seconds_to_timestamp(self, seconds: float) -> str:
-        """????????????????"""
+        """Convert seconds to timestamp string"""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
     
     def _seconds_to_webvtt_time(self, seconds: float) -> str:
-        """???WebVTT???????"""
+        """Convert seconds to WebVTT time format"""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
 
 if __name__ == "__main__":
-    # ????????????
+    # Simple test execution
     logging.basicConfig(level=logging.INFO)
     
-    # ???????????
+    # Test with sample data
     manager = SubtitleManager()
     
-    # ?????????????
+    # Add sample transcription results
     from .realtime_transcriber import TranscriptionResult
     
     results = [
-        TranscriptionResult("???????????????", 0.0, 2.5, 0.95, "ja"),
-        TranscriptionResult("????????????????", 2.5, 5.0, 0.92, "ja"),
-        TranscriptionResult("faster-whisper?????????", 5.0, 7.8, 0.88, "ja"),
+        TranscriptionResult("Hello, this is a test.", 0.0, 2.5, 0.95, "en"),
+        TranscriptionResult("Testing speech recognition.", 2.5, 5.0, 0.92, "en"),
+        TranscriptionResult("Using faster-whisper.", 5.0, 7.8, 0.88, "en"),
     ]
     
     for result in results:
         manager.add_transcription(result)
     
-    # ?????????
+    # Export test
     print("Exporting subtitles...")
     print(f"JSON: {manager.export_json()}")
     print(f"TXT: {manager.export_txt()}")
@@ -354,6 +354,6 @@ if __name__ == "__main__":
     if HAS_WEBVTT:
         print(f"WebVTT: {manager.export_webvtt()}")
     
-    # ????
+    # Statistics
     stats = manager.get_statistics()
     print(f"Statistics: {stats}")
