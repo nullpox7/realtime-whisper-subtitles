@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Real-time Whisper Subtitles Package
-????????????????
+Real-time speech recognition subtitle system
 """
 
 __version__ = "1.0.0"
